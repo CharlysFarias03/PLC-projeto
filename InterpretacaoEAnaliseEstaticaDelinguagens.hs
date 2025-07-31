@@ -21,7 +21,6 @@ data TermoLinFun = Identifier Id
 data Definicao = Def Id TermoLinFun
 type Programa = [Definicao]
 
-
 -- Aplicacao String TermoLinFun TermoLinFun
 -- seria específico para aplicações binárias.
 --
@@ -134,6 +133,9 @@ aplica _ _ = Excecao
 -- anterior). Representamos, por simplicidade, soma como um termo específico da
 -- linguagem.
 
+data Declaracao = Fun Id Termo
+      | Class Id [(Id, Id, Termo)] [id]
+
 data Termo = Var Id
            | Lit Numero
            | Som Termo Termo
@@ -159,8 +161,6 @@ sq2 = (Seq (Atr "y" (Lit 3)) termo3)
 
 -- A composição sequencial "y := (z := 5) + z ; y := (lambda x . + x y) 3 ; (lambda x . + x y) 3" seria
 sq3 = (Seq (Atr "y" (Som (Atr "z" (Lit 5)) (Var "z"))) termo3)
-
-
 
 -- O resultado da interpretação seria um dos seguintes, já que a
 -- linguagem manipula apenas números e funções. Como as funções
