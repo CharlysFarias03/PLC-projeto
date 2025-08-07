@@ -141,6 +141,9 @@ data Termo = Var Id
            | Apl Termo Termo
            | Atr Id Termo
            | Seq Termo Termo
+           | For Termo Termo Termo Termo        -- init ; cond ; incr ; body
+           | This                               -- referência ao objeto atual
+           | DecFun Id [Id] Termo               -- def f(p1..pn) = corpo
 
 -- A aplicação "(lambda x . + x 2) 3" seria
 termo1 = (Apl (Lam "x" (Som (Var "x") (Lit 2))) (Lit 3))
@@ -177,28 +180,58 @@ type Estado = [(Id,Valor)]
 
 
 -- int :: [(Id, Valor)] -> Termo -> [(Id, Valor)] -> (Valor, [(Id, Valor)])
--- int :: Ambiente -> Termo -> Estado -> (Valor, Estado)
---
 
+-- Interpretador estendido
+----------------------------------------------------------------
+int :: [(Id, Valor)] -> Termo -> Estado -> (Valor, Estado)
+
+-- variáveis
 int a (Var x) e = (search x (a ++ e), e)
 
-int a (Lit n) e = (Num n, e)
+-- literais
+int _ (Lit n) e = (Num n, e)
 
+-- soma
 int a (Som t u) e = (somaVal v1 v2, e2)
-                    where (v1,e1) = int a t e
-                          (v2,e2) = int a u e1
+  where (v1,e1) = int a t e
+        (v2,e2) = int a u e1
 
+-- lambda
 int a (Lam x t) e = (Fun (\v -> int ((x,v):a) t), e)
 
+-- aplicação
 int a (Apl t u) e = app v1 v2 e2
-                    where (v1,e1) = int a t e
-                          (v2,e2) = int a u e1
+  where (v1,e1) = int a t e
+        (v2,e2) = int a u e1
 
+-- atribuição
 int a (Atr x t) e = (v1, wr (x,v1) e1)
-                    where (v1,e1) = int a t e
+  where (v1,e1) = int a t e
 
+-- sequenciamento
 int a (Seq t u) e = int a u e1
-                    where (_,e1) = int a t e
+  where (_,e1) = int a t e
+
+-- <<< adição: THIS -----------------------------------------------------------
+int _ This e = (search "this" e, e)
+
+-- <<< adição: DECLARAÇÃO DE FUNÇÃO ------------------------------------------
+int a (DecFun f ps corpo) e =
+  let lam       = curryLam ps corpo
+      (v , e')  = int a lam e
+  in  (v, wr (f,v) e')
+
+-- <<< adição: FOR ------------------------------------------------------------
+int a (For init cond incr body) e0 =
+  let (_, e1) = int a init e0       -- inicialização
+      loop eCur =
+        case int a cond eCur of
+          (Num n, eCond) | n /= 0 ->
+              let (_, eB)  = int a body eCond
+                  (_, eInc) = int a incr eB
+              in  loop eInc
+          (_, eCond) -> (Num 0, eCond)  -- sai do laço
+  in loop e1
 
 
 -- search :: Eq a => a -> [(a, Valor)] -> Valor
@@ -233,3 +266,9 @@ instance Show Valor where
    show (Num x) = show x
    show Erro = "Erro"
    show (Fun f) = "Função"
+
+-- Funções auxiliares 
+----------------------------------------------------------------
+-- | Constrói uma lambda curried a partir de uma lista de parâmetros.
+curryLam :: [Id] -> Termo -> Termo     -- <<< adição
+curryLam ps corpo = foldr Lam corpo ps
