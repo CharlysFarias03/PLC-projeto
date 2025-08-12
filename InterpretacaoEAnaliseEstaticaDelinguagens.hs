@@ -133,7 +133,7 @@ aplica _ _ = Excecao
 -- anterior). Representamos, por simplicidade, soma como um termo específico da
 -- linguagem.
 
-data Declaracao = Fun Id Termo
+data Declaracao = Func Id Termo
       | Class Id [(Id, Id, Termo)] [id]
 
 data Termo = Var Id
@@ -143,6 +143,9 @@ data Termo = Var Id
            | Apl Termo Termo
            | Atr Id Termo
            | Seq Termo Termo
+           | Call Termo Id [Termo]
+           | Mul Termo Termo
+           | This
 
 -- A aplicação "(lambda x . + x 2) 3" seria
 termo1 = (Apl (Lam "x" (Som (Var "x") (Lit 2))) (Lit 3))
@@ -162,6 +165,8 @@ sq2 = (Seq (Atr "y" (Lit 3)) termo3)
 -- A composição sequencial "y := (z := 5) + z ; y := (lambda x . + x y) 3 ; (lambda x . + x y) 3" seria
 sq3 = (Seq (Atr "y" (Som (Atr "z" (Lit 5)) (Var "z"))) termo3)
 
+-- 
+
 -- O resultado da interpretação seria um dos seguintes, já que a
 -- linguagem manipula apenas números e funções. Como as funções
 -- podem acessar e modificar variáveis que mudam de valor ao longo
@@ -170,15 +175,15 @@ sq3 = (Seq (Atr "y" (Som (Atr "z" (Lit 5)) (Var "z"))) termo3)
 -- e retornar o novo estado modificado pela execução da função.
 
 data Valor = Num Double
-           | Fun (Valor -> Estado -> (Valor,Estado))
+           | Func (Valor -> Estado -> (Valor,Estado))
+           | Obj Id
            | Erro
 
 type Estado = [(Id,Valor)]
-
+type Heap = [(Id, (Id, Estado))]
 
 -- int :: [(Id, Valor)] -> Termo -> [(Id, Valor)] -> (Valor, [(Id, Valor)])
 -- int :: Ambiente -> Termo -> Estado -> (Valor, Estado)
---
 
 int a (Var x) e = (search x (a ++ e), e)
 
@@ -200,6 +205,11 @@ int a (Atr x t) e = (v1, wr (x,v1) e1)
 int a (Seq t u) e = int a u e1
                     where (_,e1) = int a t e
 
+int a This e h = (search "this" e, e)
+
+int a (Call t m ts) e h = (v, e2, h2)
+                        where (v, e1, h1) = int a t e
+                              (v1, e2, h2) = int a (Call m ts) e1
 
 -- search :: Eq a => a -> [(a, Valor)] -> Valor
 
@@ -221,6 +231,29 @@ app _ _ e = (Erro, e)
 wr (i,v) [] = [(i,v)]
 wr (i,v) ((j,u):l) = if (i == j) then (j,v):l else [(j,u)] ++ (wr (i,v) l)
 
+-- lookupHeap :: Id -> Heap -> Maybe (Id, Estado)
+
+lookupHeap _ [] = Nothing
+lookupHeap i ((j,v):l) = if i == j then Just (j,v) else lookupHeap i l
+
+-- updateHeap :: Id -> (Id, Estado) -> Heap -> Heap
+
+updateHeap i p [] = [(i, p)]
+updateHeap i p ((j, q):l) =
+    if i == j
+        then (i, p) : l
+        else (j, q) : updateHeap i p l
+
+-- lookupMethod :: Id -> [(Id, [Id], Termo)] -> Maybe ([Id], Termo)
+lookupMethod _ [] = Nothing
+lookupMethod n ((m, p, b):ms)
+    | n == m = Just (p, b)
+    | otherwise     = lookupMethod n ms
+
+methodsOf _ [] = []
+methodsOf c (Class n m _ : ms)
+    | c == n = m
+methodsOf c (_:ms) = methodsOf c ms
 
 -- Chamando o interpretador com o ambiente e a memória vazios.
 
