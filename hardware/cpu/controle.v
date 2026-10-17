@@ -419,8 +419,142 @@ module controle(
             end
 
             // ------------------------------------------------
-            // Estados a implementar nas proximas entregas
-            // (por enquanto voltam ao fetch para nao travar)
+            // SLL (sll rd, rt, shamt)
+            // RegDesloc.N = ir_shamt, Entrada = B (rt)
+            // ------------------------------------------------
+            ST_SLL_LOAD: begin
+                shift_code  = 3'b001;   // carrega B no RegDesloc
+                prox_estado = ST_SLL_EXEC;
+            end
+
+            ST_SLL_EXEC: begin
+                shift_code  = 3'b010;   // desloca esquerda N vezes
+                prox_estado = ST_SLL_WB;
+            end
+
+            ST_SLL_WB: begin
+                reg_write   = 1;
+                reg_dst     = 2'b01;    // rd
+                mem_to_reg  = 3'd4;     // reg_desloc_out
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // SRA (sra rd, rt, shamt) — deslocamento aritmetico
+            // ------------------------------------------------
+            ST_SRA_LOAD: begin
+                shift_code  = 3'b001;   // carrega B no RegDesloc
+                prox_estado = ST_SRA_EXEC;
+            end
+
+            ST_SRA_EXEC: begin
+                shift_code  = 3'b100;   // desloca direita aritmetico N vezes
+                prox_estado = ST_SRA_WB;
+            end
+
+            ST_SRA_WB: begin
+                reg_write   = 1;
+                reg_dst     = 2'b01;    // rd
+                mem_to_reg  = 3'd4;     // reg_desloc_out
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // LB (lb rt, offset(rs))
+            // lb_extrator usa alu_out[1:0] para selecionar o byte
+            // ------------------------------------------------
+            ST_LB_ADDR: begin
+                alu_src_a     = 1;      // A = rs
+                alu_src_b     = 2'b10;  // sign_ext(offset)
+                alu_op        = 3'b001; // soma
+                alu_out_write = 1;      // ALUOut = endereco
+                prox_estado   = ST_LB_MEM1;
+            end
+
+            ST_LB_MEM1: begin
+                iord        = 1;        // endereco = ALUOut
+                prox_estado = ST_LB_MEM2;
+            end
+
+            ST_LB_MEM2: begin
+                iord        = 1;
+                prox_estado = ST_LB_MDR;
+            end
+
+            ST_LB_MDR: begin
+                iord        = 1;
+                mdr_write   = 1;        // MDR <- palavra da memoria
+                prox_estado = ST_LB_WB;
+            end
+
+            ST_LB_WB: begin
+                reg_write   = 1;
+                reg_dst     = 2'b00;    // rt
+                mem_to_reg  = 3'd3;     // lb_out (byte extraido e estendido)
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // SB (sb rt, offset(rs))
+            // le a palavra atual, substitui o byte e reescreve
+            // sb_insersor usa alu_out[1:0] e b_out[7:0]
+            // ------------------------------------------------
+            ST_SB_ADDR: begin
+                alu_src_a     = 1;      // A = rs
+                alu_src_b     = 2'b10;  // sign_ext(offset)
+                alu_op        = 3'b001; // soma
+                alu_out_write = 1;      // ALUOut = endereco
+                prox_estado   = ST_SB_READ1;
+            end
+
+            ST_SB_READ1: begin
+                iord        = 1;        // le palavra atual da memoria
+                prox_estado = ST_SB_READ2;
+            end
+
+            ST_SB_READ2: begin
+                iord        = 1;
+                prox_estado = ST_SB_MDR;
+            end
+
+            ST_SB_MDR: begin
+                iord        = 1;
+                mdr_write   = 1;        // MDR <- palavra antiga
+                prox_estado = ST_SB_WRITE;
+            end
+
+            ST_SB_WRITE: begin
+                iord        = 1;        // endereco = ALUOut
+                mem_wr      = 1;        // escreve
+                mem_wr_src  = 1;        // dado = sb_out (palavra com byte substituido)
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // MFHI (mfhi rd) — copia Hi para rd
+            // ------------------------------------------------
+            ST_MFHI_WB: begin
+                mfhi_sel    = 1;        // seleciona hi_out
+                reg_write   = 1;
+                reg_dst     = 2'b01;    // rd
+                mem_to_reg  = 3'd6;     // hilo_reg_out (= hi_out)
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // MFLO (mflo rd) — copia Lo para rd
+            // ------------------------------------------------
+            ST_MFLO_WB: begin
+                mfhi_sel    = 0;        // seleciona lo_out
+                reg_write   = 1;
+                reg_dst     = 2'b01;    // rd
+                mem_to_reg  = 3'd6;     // hilo_reg_out (= lo_out)
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // Estados a implementar (push, pop, mult, div,
+            // excecoes, rte) — por enquanto voltam ao fetch
             // ------------------------------------------------
             default: prox_estado = ST_FETCH1;
 
