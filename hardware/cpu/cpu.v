@@ -52,7 +52,8 @@ module cpu(
     // Sinais de controle (gerados por controle.v)
     // --------------------------------------------------------
     wire        pc_write;
-    wire        iord;
+    wire [1:0]  iord;          // 00=PC 01=ALUOut 10=excecao
+    wire [31:0] exc_vec_addr;  // 253/254/255 selecionado por except_type
     wire        mem_wr;
     wire        ir_write;
     wire        read_src_a;        // MUX_Read1: 0=rs, 1=R29
@@ -205,9 +206,16 @@ module cpu(
     // MUXes
     // --------------------------------------------------------
 
-    mux2_32 MUX_IORD(
+    // endereco de excecao: 253=opcode 254=overflow 255=divzero
+    mux3_32 MUX_EXC_ADDR(
+        .sel(except_type),
+        .d0(32'd253), .d1(32'd254), .d2(32'd255),
+        .saida(exc_vec_addr)
+    );
+
+    mux3_32 MUX_IORD(
         .sel(iord),
-        .d0(pc_out), .d1(alu_out),
+        .d0(pc_out), .d1(alu_out), .d2(exc_vec_addr),
         .saida(mux_iord_out)
     );
 

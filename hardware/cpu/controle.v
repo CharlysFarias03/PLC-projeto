@@ -11,7 +11,7 @@ module controle(
     input        div_done,
     input        div_zero,
     output reg        pc_write,
-    output reg        iord,
+    output reg [1:0]  iord,   // 00=PC 01=ALUOut 10=excecao
     output reg        mem_wr,
     output reg        ir_write,
     output reg        read_src_a,
@@ -71,6 +71,7 @@ module controle(
     parameter F_SLT  = 6'h2a;
     parameter F_SRA  = 6'h03;
     parameter F_SUB  = 6'h22;
+    parameter F_RTE  = 6'h19;
 
     // --------------------------------------------------------
     // Estados — todos declarados para evitar erros de referencia
@@ -149,12 +150,24 @@ module controle(
     // --------------------------------------------------------
     reg [6:0] estado;
     reg [6:0] prox_estado;
+    reg [1:0] excep_tipo;   // tipo salvo ao entrar na excecao
 
     always @(posedge clk or posedge reset) begin
-        if (reset)
-            estado <= ST_SP_INIT;
-        else
+        if (reset) begin
+            estado     <= ST_SP_INIT;
+            excep_tipo <= 2'd0;
+        end else begin
             estado <= prox_estado;
+            // captura o tipo de excecao quando vai para o tratador
+            if (prox_estado == ST_EXCEP_EPC) begin
+                if (estado == ST_DECODE)
+                    excep_tipo <= 2'd0;   // opcode inexistente  → mem[253]
+                else if (estado == ST_DIV_WAIT)
+                    excep_tipo <= 2'd2;   // divisao por zero    → mem[255]
+                else
+                    excep_tipo <= 2'd1;   // overflow (add/sub/addi) → mem[254]
+            end
+        end
     end
 
     // --------------------------------------------------------
@@ -226,7 +239,8 @@ module controle(
                             F_DIV:       prox_estado = ST_DIV_START;
                             F_PUSH:      prox_estado = ST_PUSH_READ;
                             F_POP:       prox_estado = ST_POP_READ;
-                            default:     prox_estado = ST_FETCH1;
+                            F_RTE:       prox_estado = ST_RTE;
+                            default:     prox_estado = ST_EXCEP_EPC; // opcode R inexistente
                         endcase
                     end
                     OP_ADDI:  prox_estado = ST_ADDI_EX;
@@ -239,7 +253,7 @@ module controle(
                     OP_LUI:   prox_estado = ST_LUI_WB;
                     OP_LB:    prox_estado = ST_LB_ADDR;
                     OP_SB:    prox_estado = ST_SB_ADDR;
-                    default:  prox_estado = ST_FETCH1;
+                    default:  prox_estado = ST_EXCEP_EPC; // opcode inexistente
                 endcase
             end
 
@@ -247,11 +261,15 @@ module controle(
             // R-type aritmetico (add, sub, and)
             // ------------------------------------------------
             ST_RTYPE_EX: begin
-                alu_src_a     = 1;      // A = rs
-                alu_src_b     = 2'b00;  // B = rt
-                alu_op        = 3'b000; // usa funct
+                alu_src_a     = 1;
+                alu_src_b     = 2'b00;
+                alu_op        = 3'b000;
                 alu_out_write = 1;
-                prox_estado   = ST_RTYPE_WB;
+                // overflow so ocorre em add e sub (nao em and, slt)
+                if (ula_overflow && (funct == F_ADD || funct == F_SUB))
+                    prox_estado = ST_EXCEP_EPC;
+                else
+                    prox_estado = ST_RTYPE_WB;
             end
 
             ST_RTYPE_WB: begin
@@ -285,11 +303,14 @@ module controle(
             // ADDI
             // ------------------------------------------------
             ST_ADDI_EX: begin
-                alu_src_a     = 1;      // A = rs
-                alu_src_b     = 2'b10;  // sign_ext(imm)
-                alu_op        = 3'b001; // soma
+                alu_src_a     = 1;
+                alu_src_b     = 2'b10;
+                alu_op        = 3'b001;
                 alu_out_write = 1;
-                prox_estado   = ST_ADDI_WB;
+                if (ula_overflow)
+                    prox_estado = ST_EXCEP_EPC;
+                else
+                    prox_estado = ST_ADDI_WB;
             end
 
             ST_ADDI_WB: begin
@@ -708,8 +729,50 @@ module controle(
             end
 
             // ------------------------------------------------
-            // Estados a implementar (excecoes, rte)
+            // RTE: PC <- EPC (retorna da excecao)
             // ------------------------------------------------
+            ST_RTE: begin
+                pc_write    = 1;
+                pc_source   = 3'd4;     // epc_out
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // Tratamento de excecoes
+            // Fluxo: salva EPC → le vetor de mem[253/254/255]
+            //        → carrega PC com o endereco do handler
+            // ------------------------------------------------
+            ST_EXCEP_EPC: begin
+                epc_write   = 1;        // EPC <- PC atual (PC+4)
+                except_type = excep_tipo;
+                prox_estado = ST_EXCEP_MEM1;
+            end
+
+            ST_EXCEP_MEM1: begin
+                iord        = 2'b10;    // endereco = exc_vec_addr (253/254/255)
+                except_type = excep_tipo;
+                prox_estado = ST_EXCEP_MEM2;
+            end
+
+            ST_EXCEP_MEM2: begin
+                iord        = 2'b10;
+                except_type = excep_tipo;
+                prox_estado = ST_EXCEP_MDR;
+            end
+
+            ST_EXCEP_MDR: begin
+                iord        = 2'b10;
+                except_type = excep_tipo;
+                mdr_write   = 1;        // MDR <- byte do handler (via mem_out)
+                prox_estado = ST_EXCEP_PC;
+            end
+
+            ST_EXCEP_PC: begin
+                pc_write    = 1;
+                pc_source   = 3'd5;     // exc_vec_out = {24'b0, mdr_out[7:0]}
+                prox_estado = ST_FETCH1;
+            end
+
             default: prox_estado = ST_FETCH1;
 
         endcase
