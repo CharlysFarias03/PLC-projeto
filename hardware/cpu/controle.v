@@ -661,7 +661,54 @@ module controle(
             end
 
             // ------------------------------------------------
-            // Estados a implementar (mult, div, excecoes, rte)
+            // MULT: start → espera → escreve Hi e Lo
+            // ------------------------------------------------
+            ST_MULT_START: begin
+                mult_start  = 1;
+                prox_estado = ST_MULT_WAIT;
+            end
+
+            ST_MULT_WAIT: begin
+                if (mult_done)
+                    prox_estado = ST_MULT_WB;
+                else
+                    prox_estado = ST_MULT_WAIT;
+            end
+
+            ST_MULT_WB: begin
+                hi_write    = 1;
+                lo_write    = 1;
+                hilo_src    = 0;        // resultado vem do multiplicador
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // DIV: start → espera → escreve Hi e Lo
+            // div_zero gera excecao (tratamento pendente)
+            // ------------------------------------------------
+            ST_DIV_START: begin
+                div_start   = 1;
+                prox_estado = ST_DIV_WAIT;
+            end
+
+            ST_DIV_WAIT: begin
+                if (div_done)
+                    prox_estado = ST_DIV_WB;
+                else if (div_zero)
+                    prox_estado = ST_EXCEP_EPC;  // excecao de divisao por zero
+                else
+                    prox_estado = ST_DIV_WAIT;
+            end
+
+            ST_DIV_WB: begin
+                hi_write    = 1;
+                lo_write    = 1;
+                hilo_src    = 1;        // resultado vem do divisor
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // Estados a implementar (excecoes, rte)
             // ------------------------------------------------
             default: prox_estado = ST_FETCH1;
 
