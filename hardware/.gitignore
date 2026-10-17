@@ -1,0 +1,21 @@
+# ModelSim
+*.mpf
+*.wlf
+*.cr.mti
+transcript
+modelsim.ini
+work/
+
+# Quartus
+*.qpf
+*.qsf
+*.qdf
+*.qws
+db/
+incremental_db/
+output_files/
+
+# Sistema
+.DS_Store
+*.swp
+*.tmp
