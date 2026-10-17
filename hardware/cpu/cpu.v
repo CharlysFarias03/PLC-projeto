@@ -75,6 +75,7 @@ module cpu(
     wire        mfhi_sel;          // 0=mflo(lo_out), 1=mfhi(hi_out)
     wire        epc_write;
     wire [1:0]  except_type;       // MUX excecao: 0=opcode, 1=overflow, 2=divzero
+    wire        sp_init_sel;       // 1 = inicializa SP=227 apos reset
 
     // saida do alu_controle
     wire [2:0] ula_seletor;
@@ -88,6 +89,9 @@ module cpu(
     assign hilo_reg_out   = mfhi_sel ? hi_out : lo_out;
     assign slt_result     = {31'b0, ula_menor};
     assign mem_write_data = mem_wr_src ? sb_out : b_out;
+
+    // d7 do MUX_Data: normalmente slt; no estado de init vira SP=227
+    wire [31:0] mux_data_d7 = sp_init_sel ? 32'd227 : slt_result;
 
     // vetor de excecao: byte zero-extended (FSM coloca 253/254/255 no endereco)
     assign exc_vec_out = {24'b0, mdr_out[7:0]};
@@ -248,7 +252,7 @@ module cpu(
         .d4(reg_desloc_out), // sll, sra
         .d5(lui_out),        // lui
         .d6(hilo_reg_out),   // mfhi, mflo
-        .d7(slt_result),     // slt
+        .d7(mux_data_d7),    // slt ou sp_init=227
         .saida(mux_data_out)
     );
 
@@ -320,7 +324,8 @@ module cpu(
         .mult_start(mult_start), .div_start(div_start),
         .hi_write(hi_write), .lo_write(lo_write),
         .hilo_src(hilo_src), .mfhi_sel(mfhi_sel),
-        .epc_write(epc_write), .except_type(except_type)
+        .epc_write(epc_write), .except_type(except_type),
+        .sp_init_sel(sp_init_sel)
     );
 
     // --------------------------------------------------------

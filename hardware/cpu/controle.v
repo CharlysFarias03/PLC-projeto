@@ -36,7 +36,8 @@ module controle(
     output reg        hilo_src,
     output reg        mfhi_sel,
     output reg        epc_write,
-    output reg [1:0]  except_type
+    output reg [1:0]  except_type,
+    output reg        sp_init_sel
 );
 
     // --------------------------------------------------------
@@ -141,6 +142,7 @@ module controle(
     parameter ST_EXCEP_MDR = 7'd61;
     parameter ST_EXCEP_PC  = 7'd62;
     parameter ST_RTE       = 7'd63;
+    parameter ST_SP_INIT   = 7'd64;
 
     // --------------------------------------------------------
     // Registrador de estado
@@ -150,7 +152,7 @@ module controle(
 
     always @(posedge clk or posedge reset) begin
         if (reset)
-            estado <= ST_FETCH1;
+            estado <= ST_SP_INIT;
         else
             estado <= prox_estado;
     end
@@ -168,6 +170,7 @@ module controle(
         shift_code    = 0; mult_start    = 0; div_start     = 0;
         hi_write      = 0; lo_write      = 0; hilo_src      = 0;
         mfhi_sel      = 0; epc_write     = 0; except_type   = 0;
+        sp_init_sel   = 0;
         prox_estado   = ST_FETCH1;
 
         case (estado)
@@ -553,8 +556,112 @@ module controle(
             end
 
             // ------------------------------------------------
-            // Estados a implementar (push, pop, mult, div,
-            // excecoes, rte) — por enquanto voltam ao fetch
+            // Inicializacao do SP apos reset: R29 = 227
+            // ------------------------------------------------
+            ST_SP_INIT: begin
+                sp_init_sel = 1;        // d7 do MUX_Data = 32'd227
+                reg_write   = 1;
+                reg_dst     = 2'b11;    // R29
+                mem_to_reg  = 3'd7;     // 227
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // PUSH (push rs): SP=SP-4; Mem[SP-4]=rs
+            // ------------------------------------------------
+
+            // Recarrega A=R29(SP) e B=rs (decode carregou A=rs e B=rt)
+            ST_PUSH_READ: begin
+                read_src_a  = 1;        // mux_read1 = R29
+                read_src_b  = 1;        // mux_read2 = rs
+                a_write     = 1;
+                b_write     = 1;
+                prox_estado = ST_PUSH_CALC;
+            end
+
+            // Calcula SP-4 → ALUOut (endereco de escrita)
+            ST_PUSH_CALC: begin
+                alu_src_a     = 1;      // A = R29 (SP)
+                alu_src_b     = 2'b01;  // 4
+                alu_op        = 3'b010; // sub: SP - 4
+                alu_out_write = 1;
+                prox_estado   = ST_PUSH_STR;
+            end
+
+            // Escreve rs em Mem[SP-4]
+            ST_PUSH_STR: begin
+                iord        = 1;        // endereco = ALUOut = SP-4
+                mem_wr      = 1;
+                mem_wr_src  = 0;        // dado = b_out = rs
+                prox_estado = ST_PUSH_SPUP;
+            end
+
+            // Atualiza SP: R29 = SP-4 (ALUOut ainda tem SP-4)
+            ST_PUSH_SPUP: begin
+                reg_write   = 1;
+                reg_dst     = 2'b11;    // R29
+                mem_to_reg  = 3'd2;     // ALUOut = SP-4
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // POP (pop rd): rd=Mem[SP]; SP=SP+4
+            // ------------------------------------------------
+
+            // Recarrega A=R29(SP)
+            ST_POP_READ: begin
+                read_src_a  = 1;        // mux_read1 = R29
+                a_write     = 1;
+                prox_estado = ST_POP_ADDR;
+            end
+
+            // Coloca R29 em ALUOut para usar como endereco de leitura
+            ST_POP_ADDR: begin
+                alu_src_a     = 1;      // A = R29
+                alu_op        = 3'b100; // passa A → ula_saida = R29
+                alu_out_write = 1;      // ALUOut = R29
+                prox_estado   = ST_POP_MEM1;
+            end
+
+            // Leitura de Mem[SP]: 2 ciclos de espera
+            ST_POP_MEM1: begin
+                iord        = 1;        // endereco = ALUOut = R29
+                prox_estado = ST_POP_MEM2;
+            end
+
+            ST_POP_MEM2: begin
+                iord        = 1;
+                prox_estado = ST_POP_MDR;
+            end
+
+            ST_POP_MDR: begin
+                iord        = 1;
+                mdr_write   = 1;        // MDR = Mem[SP]
+                prox_estado = ST_POP_WB;
+            end
+
+            // Escreve MDR em rd
+            ST_POP_WB: begin
+                reg_write   = 1;
+                reg_dst     = 2'b01;    // rd
+                mem_to_reg  = 3'd0;     // MDR
+                prox_estado = ST_POP_SPUP;
+            end
+
+            // Atualiza SP: R29 = R29+4
+            // Usa ula_saida direto (sem passar por ALUOut) para nao sobrescrever
+            ST_POP_SPUP: begin
+                alu_src_a   = 1;        // A = R29
+                alu_src_b   = 2'b01;    // 4
+                alu_op      = 3'b001;   // soma: R29+4
+                reg_write   = 1;
+                reg_dst     = 2'b11;    // R29
+                mem_to_reg  = 3'd1;     // ula_saida = R29+4
+                prox_estado = ST_FETCH1;
+            end
+
+            // ------------------------------------------------
+            // Estados a implementar (mult, div, excecoes, rte)
             // ------------------------------------------------
             default: prox_estado = ST_FETCH1;
 
